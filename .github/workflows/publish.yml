@@ -1,0 +1,124 @@
+name: Release
+
+# Publishes to crates.io via Trusted Publishing: GitHub mints a short-lived OIDC
+# token, crates.io exchanges it for a registry token that expires in minutes.
+# There is no CARGO_REGISTRY_TOKEN secret in this repo, and there should not be.
+#
+# The trusted publisher registered on crates.io names this file by filename. If
+# this file is renamed, publishing breaks until the crates.io config is updated
+# to match — the OIDC claim carries the workflow path and is checked against it.
+#
+# Named publish.yml, and carrying no `environment:`, to match fg-labs/tricord.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Least privilege: `id-token` mints the OIDC token, `contents` reads the tag.
+# Nothing here needs write access to the repository.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # Re-run the full suite against the tagged commit rather than trusting that
+  # the branch was green. A tag can point at any commit, including one that
+  # never ran CI, and publishing to crates.io cannot be undone — a version can
+  # be yanked but never replaced.
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Formatting and lints
+        run: |
+          cargo ci-fmt
+          cargo ci-lint
+      - name: Unit and integration tests
+        run: cargo ci-test
+
+  # The release binary is the one people get, and it is the only build where the
+  # optimiser could delete the pointer chase. `cargo test` cannot catch that —
+  # it links the debug binary — so this check exists nowhere else in the release
+  # path. See CLAUDE.md, "The optimiser-elision trap".
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build release
+        run: cargo build --release --locked
+      - name: Probe reports real work
+        run: |
+          set -euo pipefail
+          out="$(./target/release/tachyon --seconds 2 --working-set-mb 32 --json)"
+          echo "$out"
+          python3 - "$out" <<'PY'
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d["accesses"] > 0, f"no accesses recorded: {d}"
+          assert d["million_accesses_per_sec"] > 0, d
+          # Latency far below DRAM means the chase was elided or the working set
+          # fit in cache; either way the binary about to be published does not
+          # measure what it claims to.
+          assert 20 < d["ns_per_access"] < 2000, f"latency implausible: {d}"
+          expected = {
+              "probe", "version", "million_accesses_per_sec", "ns_per_access",
+              "accesses", "elapsed_s", "threads", "working_set_bytes_per_thread",
+          }
+          assert set(d) == expected, f"JSON keys drifted: {sorted(set(d) ^ expected)}"
+          print(f"ok: {d['million_accesses_per_sec']} M/s, {d['ns_per_access']} ns")
+          PY
+
+  # Refuse to publish a version the tag does not name. Cargo would happily
+  # publish 0.1.0 from a tag called v0.2.0, and the mismatch is unfixable after
+  # the fact.
+  version-matches-tag:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compare Cargo.toml version to the tag
+        run: |
+          set -euo pipefail
+          manifest="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "manifest=$manifest tag=$tag"
+          test "$manifest" = "$tag" || {
+            echo "::error::Cargo.toml is $manifest but the tag is $tag" >&2
+            exit 1
+          }
+
+  publish:
+    needs: [verify, probe, version-matches-tag]
+    runs-on: ubuntu-24.04
+    # No `environment:`, matching tricord — so the trusted publisher registered
+    # on crates.io must leave its Environment field blank. If crates.io names an
+    # environment this job does not run in, the token exchange is rejected.
+    permissions:
+      # Mints the OIDC token crates.io exchanges for a registry token. This is
+      # the whole mechanism; without it the job cannot authenticate at all.
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Authenticate to crates.io
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+        id: auth
+      - name: Publish
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
