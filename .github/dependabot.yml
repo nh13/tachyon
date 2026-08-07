@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # The crate has no dependencies on purpose, so there is no cargo ecosystem
+  # entry here — only the actions used by CI, which do need watching.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all-actions:
+        patterns: ["*"]

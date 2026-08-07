@@ -1,0 +1,78 @@
+name: Check and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  test:
+    # Both architectures, because this crate's entire job is to characterise
+    # hardware. x86_64 and arm64 have different cache hierarchies and different
+    # memory latencies, and the working-set default is chosen against both — a
+    # change that behaves differently across them is exactly what must not ship.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # No toolchain action: rust-toolchain.toml declares the channel and the
+      # components, rustup is preinstalled on every runner, and the crate has no
+      # dependencies — so the pin stays the single source of truth and CI carries
+      # one third-party action instead of four.
+      - name: Unit and integration tests
+        run: cargo ci-test
+
+  lint:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Formatting
+        run: cargo ci-fmt
+      - name: Clippy
+        run: cargo ci-lint
+
+  probe:
+    # Smoke the RELEASE binary, which no unit test can stand in for: the pointer
+    # chase is pure computation with an unused result, so an optimiser change
+    # could delete it and leave a binary that still exits 0 and still prints a
+    # well-formed report — with zero accesses in it.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Build release
+        run: cargo build --release --locked
+      - name: Probe reports real work
+        run: |
+          set -euo pipefail
+          out="$(./target/release/tachyon --seconds 2 --working-set-mb 32 --json)"
+          echo "$out"
+          python3 - "$out" <<'PY'
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d["accesses"] > 0, f"chase was optimised away: {d}"
+          assert d["million_accesses_per_sec"] > 0, d
+          # An uncontended DRAM round trip is ~60-120 ns. A reading far below
+          # that means the working set fit in cache and the probe measured the
+          # wrong thing; far above means something is very wrong with the host.
+          assert 20 < d["ns_per_access"] < 2000, f"latency implausible: {d}"
+          print(f"ok: {d['million_accesses_per_sec']} M/s, {d['ns_per_access']} ns")
+          PY

@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest a capability or a change to what is measured
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What can you not currently find out about a host?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: textarea
+    id: comparability
+    attributes:
+      label: Effect on comparability
+      description: >-
+        Readings are compared across months and machines. Would this change what
+        an existing score means? If so, say how users of old readings should
+        interpret the change.
+    validations:
+      required: true

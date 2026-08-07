@@ -1,0 +1,7 @@
+[alias]
+# Plain `cargo test` rather than nextest: the crate has no dependencies and
+# compiles in about a second, so a test-runner dependency would cost more than
+# it saves. `--locked` keeps CI honest about the committed lockfile.
+ci-test = "test --locked --all-features"
+ci-fmt = "fmt --all -- --check"
+ci-lint = "clippy --all-features --all-targets -- -D warnings"
