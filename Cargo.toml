@@ -1,0 +1,37 @@
+[package]
+name = "tachyon"
+version = "0.1.0"
+authors = ["Nils Homer <nils@fulcrumgenomics.com>"]
+description = "Detect the cloaked: measure a host's memory access rate under current contention"
+repository = "https://github.com/nh13/tachyon"
+homepage = "https://github.com/nh13/tachyon"
+license = "MIT"
+edition = "2024"
+rust-version = "1.85"
+readme = "README.md"
+keywords = ["benchmark", "contention", "memory", "latency", "cloud"]
+categories = ["command-line-utilities", "development-tools::profiling"]
+
+[lib]
+name = "tachyon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tachyon"
+path = "src/main.rs"
+
+# No dependencies, deliberately. This gets baked into benchmark images and its
+# readings are compared across months, so every avoided dependency is one fewer
+# thing that can silently change what it measures.
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+[profile.release]
+# The measurement IS the optimised code path, so make it the one people get.
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -1,0 +1,118 @@
+name: Check and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  test:
+    # Both architectures, because this crate's entire job is to characterise
+    # hardware. x86_64 and arm64 have different cache hierarchies and different
+    # memory latencies, and the working-set default is chosen against both — a
+    # change that behaves differently across them is exactly what must not ship.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # No toolchain action: rust-toolchain.toml declares the channel and the
+      # components, rustup is preinstalled on every runner, and the crate has no
+      # dependencies — so the pin stays the single source of truth and CI carries
+      # one third-party action instead of four.
+      - name: Unit and integration tests
+        run: cargo ci-test
+
+  msrv:
+    # Cargo.toml claims rust-version = "1.85" and CONTRIBUTING.md repeats it, but
+    # rust-toolchain.toml pins `stable` — so without this job nothing would
+    # notice the day the crate stops building on the version it advertises.
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Build against the declared MSRV
+        run: |
+          set -euo pipefail
+          msrv="$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)"
+          test -n "$msrv"
+          echo "declared MSRV: $msrv"
+          rustup toolchain install "$msrv" --profile minimal
+          cargo "+$msrv" build --locked --all-features
+
+  lint:
+    # The three jobs cover deliberately different matrices. `test` and `probe`
+    # need both architectures because the cache hierarchies differ and that is
+    # what this crate characterises. `lint` runs on Linux and macOS because
+    # clippy and rustfmt are host-independent but the two runners have disagreed
+    # on toolchain minor version before. Do not narrow this matrix without
+    # updating the branch protection's required checks, which name each job by
+    # its matrix leg — a removed leg blocks every PR on a check that never runs.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Formatting
+        run: cargo ci-fmt
+      - name: Clippy
+        run: cargo ci-lint
+
+  probe:
+    # Smoke the RELEASE binary. This job is the ONLY place the optimised build is
+    # exercised: `cargo test` links CARGO_BIN_EXE_tachyon against the debug
+    # binary, so the test suite structurally cannot catch the optimiser deleting
+    # the pointer chase (pure computation with an unused result).
+    #
+    # Note the symptom is inflation, not zero. `accesses` counts completed
+    # batches, so eliding the inner chase makes the outer loop nearly free and
+    # the count explodes (~1e12) while latency collapses toward zero. The
+    # ns_per_access bounds below are the assertion that catches it; an
+    # `accesses > 0` check would pass straight through it.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Build release
+        run: cargo build --release --locked
+      - name: Probe reports real work
+        run: |
+          set -euo pipefail
+          out="$(./target/release/tachyon --seconds 2 --working-set-mb 32 --json)"
+          echo "$out"
+          python3 - "$out" <<'PY'
+          import json, sys
+          d = json.loads(sys.argv[1])
+          assert d["accesses"] > 0, f"no accesses recorded: {d}"
+          assert d["million_accesses_per_sec"] > 0, d
+          # THE load-bearing assertion. An uncontended DRAM round trip is
+          # ~60-120 ns. Far below means either the working set fit in cache or
+          # the chase was optimised away entirely (which drives latency toward
+          # 0 and inflates the access count); far above means something is very
+          # wrong with the host. Wide on purpose — a busy runner is allowed to
+          # be slow, and that is the tool working.
+          assert 20 < d["ns_per_access"] < 2000, f"latency implausible: {d}"
+          # Pin the field names: downstream runs join stored scores on these,
+          # so a rename silently breaks every record already written.
+          expected = {
+              "probe", "version", "million_accesses_per_sec", "ns_per_access",
+              "accesses", "elapsed_s", "threads", "working_set_bytes_per_thread",
+          }
+          assert set(d) == expected, f"JSON keys drifted: {sorted(set(d) ^ expected)}"
+          print(f"ok: {d['million_accesses_per_sec']} M/s, {d['ns_per_access']} ns")
+          PY

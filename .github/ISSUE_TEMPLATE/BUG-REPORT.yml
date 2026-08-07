@@ -1,0 +1,39 @@
+name: Bug report
+description: Something behaves differently from what the docs say
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the exact command and its full output.
+      placeholder: |
+        $ tachyon --seconds 2 --json
+        {...}
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "Output of `tachyon --version`, or the commit you built."
+    validations:
+      required: true
+  - type: textarea
+    id: host
+    attributes:
+      label: Host
+      description: >-
+        CPU model, core count, and whether the machine was idle. A contended
+        machine reads slower BY DESIGN, so a low score on a busy host is the tool
+        working rather than a bug — please say what else was running.
+      placeholder: |
+        c6a.4xlarge (AMD EPYC Milan), 16 vCPU, otherwise idle
+    validations:
+      required: true
