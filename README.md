@@ -1,4 +1,6 @@
 [![Check and Test](https://github.com/nh13/tachyon/actions/workflows/check.yml/badge.svg)](https://github.com/nh13/tachyon/actions/workflows/check.yml)
+[![Version at crates.io](https://img.shields.io/crates/v/tachyon)](https://crates.io/crates/tachyon)
+[![Documentation at docs.rs](https://img.shields.io/docsrs/tachyon)](https://docs.rs/tachyon)
 [![License](http://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/nh13/tachyon/blob/main/LICENSE)
 
 # tachyon
