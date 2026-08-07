@@ -40,13 +40,16 @@ A `4xlarge` is roughly one twelfth of a physical server. Your vCPUs are guarante
 ## Installation
 
 ```console
+# From crates.io:
+cargo install tachyon
+
 # From source:
 git clone https://github.com/nh13/tachyon && cd tachyon
 cargo build --release
 # Binary is at target/release/tachyon
 ```
 
-Not yet published to crates.io.
+Record `tachyon --version` alongside any score you keep. A future release may change what the probe measures, and the version is the only thing that tells two readings apart.
 
 ## Usage
 

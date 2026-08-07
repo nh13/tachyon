@@ -12,7 +12,9 @@ explicitly under a `Measurement` heading.
 
 ## [Unreleased]
 
-Initial release, not yet tagged.
+## [0.1.0] - 2026-08-07
+
+Initial release.
 
 ### Added
 
@@ -46,8 +48,9 @@ Initial release, not yet tagged.
 
 ### Fixed
 
-Pre-release, so these never shipped in a reading; recorded because each one
-could have produced a number that looked like a measurement.
+Caught in review before this first release, so none of them ever shipped in a
+recorded reading. Listed because each could have produced a number that looked
+like a measurement.
 
 - `--seconds` values too large for `Duration` panicked instead of being rejected
   as a usage error. Now bounded at 86400.
@@ -63,4 +66,5 @@ could have produced a number that looked like a measurement.
   *inflates* (~2.4e12 for a 0.4 s run), and `cargo test` links the debug binary.
   The plausibility bounds on `ns_per_access` are the assertion that catches it.
 
-[Unreleased]: https://github.com/nh13/tachyon/commits/main
+[Unreleased]: https://github.com/nh13/tachyon/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/nh13/tachyon/releases/tag/v0.1.0
